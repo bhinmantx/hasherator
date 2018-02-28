@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -20,7 +21,10 @@ func (a *AssetsDir) Run(sourcePath, workingPath string, noHashDirs []string) err
 
 	a.Map = map[string]string{}
 
-	err := os.RemoveAll(workingPath)
+	//Original code used RemoveAll but this also deleted the directory!	err := os.RemoveAll(workingPath)
+
+	err := RemoveContents(workingPath)
+
 	if err != nil {
 		return fmt.Errorf("failed to remove working directory prior to copy: " + err.Error())
 	}
@@ -30,6 +34,25 @@ func (a *AssetsDir) Run(sourcePath, workingPath string, noHashDirs []string) err
 		return err
 	}
 
+	return nil
+}
+
+func RemoveContents(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		err = os.RemoveAll(filepath.Join(dir, name))
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -46,14 +69,14 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string) error {
 		entryName := fileEntry.Name()
 
 		if fileEntry.IsDir() {
-			newPath := fmt.Sprintf("%s/%s", runtimePath, entryName)
-
+			//This is to make certain the correct directory separators are used.
+			newPath := filepath.Join(runtimePath, fileEntry.Name())
 			err := os.MkdirAll(newPath, 0777)
 			if err != nil {
 				panic("failed to make directory: " + err.Error())
 			}
 
-			err = a.recursiveHashAndCopy(fmt.Sprintf("%s%s/", dirPath, fileEntry.Name()), newPath)
+			err = a.recursiveHashAndCopy(filepath.Join(dirPath, fileEntry.Name()), newPath)
 			if err != nil {
 				return err
 			}
@@ -68,7 +91,8 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string) error {
 				dot = "."
 			}
 
-			file, err := ioutil.ReadFile(fmt.Sprintf("%s%s", dirPath, fileEntry.Name()))
+			file, err := ioutil.ReadFile(filepath.Join(dirPath, fileEntry.Name()))
+
 			if err != nil {
 				return fmt.Errorf("failed to read file: " + err.Error())
 			}
@@ -87,13 +111,13 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string) error {
 				hash = fmt.Sprintf("-%x", string(h[:16]))
 			}
 
-			err = copyFile(fmt.Sprintf("%s%s", dirPath, fileEntry.Name()),
-				fmt.Sprintf("%s/%s%s%s%s", runtimePath, entryName, hash, dot, fileExtension))
+			err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s%s", filepath.Join(runtimePath, entryName), hash, dot, fileExtension))
 			if err != nil {
 				return fmt.Errorf("failed to return file: " + err.Error())
 			}
 
 			a.Map[fileEntry.Name()] = fmt.Sprintf("%s%s%s%s", entryName, hash, dot, fileExtension)
+			a.Map[filepath.Join(dirPath, fileEntry.Name())] = fmt.Sprintf("%s%s%s%s", filepath.Join(runtimePath, entryName), hash, dot, fileExtension)
 		}
 	}
 	return nil
