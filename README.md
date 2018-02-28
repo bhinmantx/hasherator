@@ -2,6 +2,8 @@
 
 Golang package that will perform a md5 hash on each file within a directory (and its subdirectories) and append the result to the name of that file. 
 
+This is my attempt to make a cross platform version of this library, as it was failing on Windows based machines
+
 This allows your Go backend to deliver CSS, JS, etc. files to the browser without having to clear the file caching
 every time there is a change. 
 
