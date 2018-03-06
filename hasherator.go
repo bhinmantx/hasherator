@@ -8,16 +8,40 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tideland/golib/logger"
 )
 
 type AssetsDir struct {
 	Map           map[string]string
 	noHashDirList []string
+	noCopyDirList []string
 }
 
 func (a *AssetsDir) Run(sourcePath, workingPath string, noHashDirs []string) error {
 
+	err := a.RunWithTrimPath(sourcePath, workingPath, noHashDirs, "")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *AssetsDir) RunWithTrimPath(sourcePath, workingPath string, noHashDirs []string, trimPath string) error {
+
+	err := a.RunWithTrimPathAndIgnore(sourcePath, workingPath, noHashDirs, []string{}, trimPath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (a *AssetsDir) RunWithTrimPathAndIgnore(sourcePath, workingPath string, noHashDirs []string, noCopyDirs []string, trimPath string) error {
+
 	a.noHashDirList = noHashDirs
+	a.noCopyDirList = noCopyDirs
+	//err := makeAMapOfDirectoryPathsWeHate(noHashDirs)
 
 	a.Map = map[string]string{}
 
@@ -28,8 +52,8 @@ func (a *AssetsDir) Run(sourcePath, workingPath string, noHashDirs []string) err
 	if err != nil {
 		return fmt.Errorf("failed to remove working directory prior to copy: " + err.Error())
 	}
-
-	err = a.recursiveHashAndCopy(sourcePath, workingPath)
+	logger.Criticalf("here is a.noCopyDirList %v", a.noCopyDirList)
+	err = a.recursiveHashAndCopy(sourcePath, workingPath, trimPath)
 	if err != nil {
 		return err
 	}
@@ -56,8 +80,18 @@ func RemoveContents(dir string) error {
 	return nil
 }
 
-func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string) error {
+func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string, trimPath string) error {
 	var err error
+
+	//Inefficient but it doesn't run very often
+	checkPath := strings.Split(dirPath, string(os.PathSeparator))
+	for _, dirName := range checkPath {
+		if stringInSlice(dirName, a.noCopyDirList) {
+			logger.Criticalf("we are exiting from this: %s %s %s", dirPath, runtimePath, dirName)
+			return err
+		}
+		//	logger.Criticalf("we are NOT exiting from this: %s %s %s", dirPath, runtimePath, dirName)
+	}
 
 	assetDirs, err := ioutil.ReadDir(dirPath)
 	if err != nil {
@@ -67,7 +101,7 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string) error {
 	for _, fileEntry := range assetDirs {
 
 		entryName := fileEntry.Name()
-
+		//We're not going to even copy the contents of noCopyDirs
 		if fileEntry.IsDir() {
 			//This is to make certain the correct directory separators are used.
 			newPath := filepath.Join(runtimePath, fileEntry.Name())
@@ -76,7 +110,7 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string) error {
 				panic("failed to make directory: " + err.Error())
 			}
 
-			err = a.recursiveHashAndCopy(filepath.Join(dirPath, fileEntry.Name()), newPath)
+			err = a.recursiveHashAndCopy(filepath.Join(dirPath, fileEntry.Name()), newPath, trimPath)
 			if err != nil {
 				return err
 			}
@@ -101,8 +135,11 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string) error {
 			var noHash bool
 
 			dir := strings.Split(runtimePath, string(os.PathSeparator))
-			for _, noDir := range a.noHashDirList {
-				if noDir == dir[len(dir)-1] {
+
+			//Searching for an excluded foldername. Has a bug where duplicate foldernames in a nested directory
+			//result in a no-hash
+			for _, excluded := range a.noHashDirList {
+				if stringInSlice(excluded, dir) {
 					noHash = true
 				}
 			}
@@ -113,15 +150,37 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string) error {
 			}
 
 			err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s%s", filepath.Join(runtimePath, entryName), hash, dot, fileExtension))
+			//temporary test for transitional states:
+			if !noHash {
+				err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s", filepath.Join(runtimePath, entryName), dot, fileExtension))
+			}
 			if err != nil {
 				return fmt.Errorf("failed to return file: " + err.Error())
 			}
-
+			//Just by filename:
 			a.Map[fileEntry.Name()] = fmt.Sprintf("%s%s%s%s", entryName, hash, dot, fileExtension)
-			a.Map[filepath.Join(dirPath, fileEntry.Name())] = fmt.Sprintf("%s%s%s%s", filepath.Join(runtimePath, entryName), hash, dot, fileExtension)
+			//This supports the use of the full path
+			//need to make sure the filepath key is set for web path type slashes
+			hashfilepathname := fmt.Sprintf("%s%s%s%s", filepath.Join(dirPath, entryName), hash, dot, fileExtension)
+			hashfilepathname = strings.Replace(hashfilepathname, string(filepath.Separator), "/", -1)
+			filepathname := filepath.Join(dirPath, fileEntry.Name())
+			filepathname = strings.Replace(filepathname, string(filepath.Separator), "/", -1)
+			//here is where you could clip the part of the directory structure you want
+			filepathname = trimDirectoryPath(filepathname, trimPath)
+			hashfilepathname = trimDirectoryPath(hashfilepathname, trimPath)
+			a.Map[filepathname] = hashfilepathname
 		}
 	}
 	return nil
+}
+
+//This allows for the trimming of a path down to the relative directory structure, so that a folder doesn't need to be at the
+//root of your web app's directory
+func trimDirectoryPath(path string, trim string) (trimmed_string string) {
+	trimmed_string = strings.Replace(path, trim, "", -1)
+	//To avoid double slashes
+	trimmed_string = strings.Replace(trimmed_string, "//", "/", -1)
+	return
 }
 
 func copyFile(src, dst string) error {
@@ -141,4 +200,31 @@ func copyFile(src, dst string) error {
 	_, err = io.Copy(out, in)
 
 	return err
+}
+
+func stringInSlice(a string, list []string) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
+
+func makeAMapOfDirectoryPathsWeHate(noHashDirs []string) (err error) {
+	for _, file := range noHashDirs {
+		files, err := ioutil.ReadDir(file)
+
+		if err != nil {
+			logger.Errorf("failed in the read: %s", err.Error())
+		}
+
+		for _, f := range files {
+			if f.IsDir() {
+				fmt.Println(f.Name())
+			}
+		}
+		logger.Debugf("thats a loop for %s", file)
+	}
+	return
 }
