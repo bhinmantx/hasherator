@@ -83,16 +83,6 @@ func RemoveContents(dir string) error {
 func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string, trimPath string) error {
 	var err error
 
-	//Inefficient but it doesn't run very often
-	checkPath := strings.Split(dirPath, string(os.PathSeparator))
-	for _, dirName := range checkPath {
-		if stringInSlice(dirName, a.noCopyDirList) {
-			logger.Criticalf("we are exiting from this: %s %s %s", dirPath, runtimePath, dirName)
-			return err
-		}
-		//	logger.Criticalf("we are NOT exiting from this: %s %s %s", dirPath, runtimePath, dirName)
-	}
-
 	assetDirs, err := ioutil.ReadDir(dirPath)
 	if err != nil {
 		return fmt.Errorf("error reading directory: %s", err)
@@ -103,6 +93,9 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string, trimPath s
 		entryName := fileEntry.Name()
 		//We're not going to even copy the contents of noCopyDirs
 		if fileEntry.IsDir() {
+			if stringInSlice(entryName, a.noCopyDirList) {
+				return err
+			}
 			//This is to make certain the correct directory separators are used.
 			newPath := filepath.Join(runtimePath, fileEntry.Name())
 			err := os.MkdirAll(newPath, 0777)
@@ -151,9 +144,9 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string, trimPath s
 
 			err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s%s", filepath.Join(runtimePath, entryName), hash, dot, fileExtension))
 			//temporary test for transitional states:
-			if !noHash {
-				err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s", filepath.Join(runtimePath, entryName), dot, fileExtension))
-			}
+			//if !noHash {
+			//	err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s", filepath.Join(runtimePath, entryName), dot, fileExtension))
+			//	}
 			if err != nil {
 				return fmt.Errorf("failed to return file: " + err.Error())
 			}
