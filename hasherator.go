@@ -29,7 +29,7 @@ func (a *AssetsDir) Run(sourcePath, workingPath string, noHashDirs []string) err
 
 func (a *AssetsDir) RunWithTrimPath(sourcePath, workingPath string, noHashDirs []string, trimPath string) error {
 
-	err := a.RunWithTrimPathAndIgnore(sourcePath, workingPath, noHashDirs, []string{}, trimPath)
+	err := a.RunWithTrimPathAndIgnore(sourcePath, workingPath, noHashDirs, []string{}, trimPath, false)
 	if err != nil {
 		return err
 	}
@@ -37,7 +37,7 @@ func (a *AssetsDir) RunWithTrimPath(sourcePath, workingPath string, noHashDirs [
 	return nil
 }
 
-func (a *AssetsDir) RunWithTrimPathAndIgnore(sourcePath, workingPath string, noHashDirs []string, noCopyDirs []string, trimPath string) error {
+func (a *AssetsDir) RunWithTrimPathAndIgnore(sourcePath, workingPath string, noHashDirs []string, noCopyDirs []string, trimPath string, redundant_copy bool) error {
 
 	a.noHashDirList = noHashDirs
 	a.noCopyDirList = noCopyDirs
@@ -53,7 +53,7 @@ func (a *AssetsDir) RunWithTrimPathAndIgnore(sourcePath, workingPath string, noH
 		return fmt.Errorf("failed to remove working directory prior to copy: " + err.Error())
 	}
 	logger.Criticalf("here is a.noCopyDirList %v", a.noCopyDirList)
-	err = a.recursiveHashAndCopy(sourcePath, workingPath, trimPath)
+	err = a.recursiveHashAndCopy(sourcePath, workingPath, trimPath, redundant_copy)
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,9 @@ func RemoveContents(dir string) error {
 	return nil
 }
 
-func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string, trimPath string) error {
+//Redundant copy allows for all files to be transfered so it "just works" in case certain assets
+//Aren't inside the hasher
+func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string, trimPath string, redundant_copy bool) error {
 	var err error
 
 	assetDirs, err := ioutil.ReadDir(dirPath)
@@ -103,7 +105,7 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string, trimPath s
 				panic("failed to make directory: " + err.Error())
 			}
 
-			err = a.recursiveHashAndCopy(filepath.Join(dirPath, fileEntry.Name()), newPath, trimPath)
+			err = a.recursiveHashAndCopy(filepath.Join(dirPath, fileEntry.Name()), newPath, trimPath, redundant_copy)
 			if err != nil {
 				return err
 			}
@@ -144,9 +146,9 @@ func (a *AssetsDir) recursiveHashAndCopy(dirPath, runtimePath string, trimPath s
 
 			err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s%s", filepath.Join(runtimePath, entryName), hash, dot, fileExtension))
 			//temporary test for transitional states:
-			//if !noHash {
-			//	err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s", filepath.Join(runtimePath, entryName), dot, fileExtension))
-			//	}
+			if !noHash && redundant_copy {
+				err = copyFile(filepath.Join(dirPath, fileEntry.Name()), fmt.Sprintf("%s%s%s", filepath.Join(runtimePath, entryName), dot, fileExtension))
+			}
 			if err != nil {
 				return fmt.Errorf("failed to return file: " + err.Error())
 			}
